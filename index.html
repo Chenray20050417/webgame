@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <script src="./assets/phaser@3.55.2.min.js"></script>
+    <style type="text/css">
+        body {
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <script>
+        const config = {
+            type: Phaser.AUTO,
+            width: 640,
+            height: 480,
+            scale: {
+                autoCenter: Phaser.Scale.CENTER_BOTH
+            },
+
+            pixelArt: true,
+            physics: {
+                default: "arcade",
+                arcade: {
+                    gravity: { y: 100 },
+                },
+            },
+            scene: {
+                preload: preload,
+                create: create,
+                update: update,
+            },
+        };
+
+        const game = new Phaser.Game(config);
+        let platforms,
+            player,
+            cursors
+
+        let isFlipping = false;
+        let emitter, particles; // 全域變數
+        let sky = null;
+        let edgeTimer = 0;
+        let jumpTimer = 0;
+        let wasStanding = false;
+
+        let score = 0;
+        let scoreText;
+        let IDText;
+        let currentLayer = 0;
+        let lastPlatform = null; // 記錄上一次站立的平台
+        let lastLayer = 19; // 紀錄上次所在的層數（初始最高層）
+
+
+        function preload() {
+            // 練習先前學過的經驗，將background.png、platform.png、ice-platform.png、dude.png資料匯入
+            this.load.image("background", "assets/background.png");
+            this.load.image("trees", "assets/trees.png");
+            this.load.image("clouds", "assets/clouds.png");
+            this.load.image("platform", "assets/platform.png");
+            this.load.image("ice-platform", "assets/ice-platform.png");
+            this.load.spritesheet("dude", "assets/dude.png", {
+                frameWidth: 32,
+                frameHeight: 48,
+            });
+            this.load.image("red", "assets/red.png");
+            this.load.image("blue", "assets/blue.png");
+        }
+
+        function create() {
+
+
+
+
+
+
+            this.physics.world.setBounds(0, 0, 640, 2000);
+            this.cameras.main.setBackgroundColor("#87CEFA");
+            // 繪製背景天空
+            this.add.rectangle(config.width / 2, config.height / 2, config.width, config.height, 0x87CEFA); // 藍色背景
+            sky = this.add.tileSprite(
+                config.width / 2,
+                config.height / 2,
+                config.width,
+                config.height,
+                "clouds"
+            );
+            //sky.setAlpha(0.6); // 設定透明度，讓藍色背景透出來
+            this.add.sprite(0, 1906, "trees").setOrigin(0);
+            sky.setScrollFactor(0);
+
+
+            player = this.physics.add
+                .sprite(320, 1952, "dude")
+                .setCollideWorldBounds(true)
+                .setName("dude");
+            player.body.setSize(2, 32).setOffset(6, 16);
+
+
+
+            platforms = this.physics.add.group({
+                immovable: true,
+                allowGravity: false,
+                velocityX: 100,
+            });
+
+            this.physics.add.collider(player, platforms, setFriction, null, this);
+
+            /* platforms.createMultiple([
+                 {
+                     key: "ice-platform",
+                     setXY: {
+                         x: 0,
+                         y: 64,
+                     },
+                     setFrictionX: 1,
+                 },
+                 {
+                     key: "ice-platform",
+                     setXY: {
+                         x: 106,
+                         y: 450,
+                     },
+                     setFrictionX: 1,
+                 },
+                 {
+                     key: "platform",
+                     setXY: {
+                         x: 206,
+                         y: 250,
+                     },
+                     setFrictionX: 1,
+                 },
+                 {
+                     key: "platform",
+                     setXY: {
+                         x: 300,
+                         y: 450,
+                     },
+                     setFrictionX: 1,
+                 },
+             ]);
+             */
+            let property = { x: 0, y: 50, type: "platform" };
+
+
+            for (let i = 0; i <= 20; i++) {
+                property.type = i % 2 === 1 ? "platform" : "ice-platform";
+                let platform = platforms
+                    .create(property.x, property.y, property.type)
+                    .setVelocityX(100)
+                    .setOrigin(0, 0)
+                    .setName("platform" + i);
+
+                property.x += 200;
+                if (Math.random() > 0.5) {
+                    platform.body.velocity.x *= -1;
+                }
+
+
+
+                if (property.type === "platform") platform.body.setFriction(1);
+                if (property.x >= 600) {
+                    property.x = 0;
+                }
+                property.y += 104;
+            }
+
+
+
+
+
+            // Animations
+            this.anims.create({
+                key: 'left',
+                frames: this.anims.generateFrameNumbers('dude', { start: 0, end: 3 }),
+                frameRate: 10,
+                repeat: -1
+            });
+
+            this.anims.create({
+                key: 'turn',
+                frames: [{ key: 'dude', frame: 4 }],
+                frameRate: 20
+            });
+
+            this.anims.create({
+                key: 'right',
+                frames: this.anims.generateFrameNumbers('dude', { start: 5, end: 8 }),
+                frameRate: 10,
+                repeat: -1
+            });
+
+
+            cursors = this.input.keyboard.createCursorKeys();
+
+
+
+
+
+            particles = this.add.particles('red');
+            emitter = particles.createEmitter({
+                x: player.x,
+                y: player.y + player.displayHeight / 2, // 讓粒子從玩家腳底出現
+                speed: { min: -100, max: 100 },
+                scale: { start: 0.1, end: 0 }, // 逐漸縮小
+                lifespan: 200,
+                quantity: 10, // 一次噴發 10 顆粒子
+                blendMode: 'ADD',
+                on: false // 預設不啟動發射粒子特效
+            });
+            // 讓粒子特效跟隨玩家，並設定位置有半個身高的偏移量在玩家腳底
+            emitter.startFollow(player, 0, player.displayHeight / 2);
+            // 雪花粒子
+            let snowParticles = this.add.particles('blue'); // 用藍色代表雪
+            snowEmitter = snowParticles.createEmitter({
+                x: 0,
+                y: 0,
+                speedY: { min: 50, max: 100 },
+                scale: { start: 0.2, end: 0 },
+                lifespan: 500,
+                quantity: 5,
+                blendMode: 'ADD',
+                on: false
+            });
+
+            // 讓粒子在玩家位置出現
+            snowEmitter.startFollow(player, 0, player.displayHeight / 2);
+
+
+
+            //this.physics.add.collider(player, platforms, setFriction, null, this);
+            this.physics.add.collider(player, platforms);
+            let camera = this.cameras.main;
+            camera.setBounds(0, 0, 640, 2000).startFollow(player, true, 0, 0.5, 0, 100);
+
+
+
+
+
+            scoreText = this.add.text(500, 20, 'Score: 0', {
+                fontSize: '24px',
+                fill: '#0x800000',
+            }).setScrollFactor(0);
+
+
+
+
+
+            IDText = this.add.text(50, 20, '1122046陳柏睿', {
+                fontSize: '24px',
+                fill: '#0x800000',
+            }).setScrollFactor(0);
+
+
+
+
+
+
+
+        }
+
+        function update(time, detla) {
+
+
+
+
+            platforms.getChildren().forEach(function (platform) {
+                wrapPlatform(platform);
+            });
+
+
+
+            player.setVelocityX(0);
+            let isTouch = player.body.blocked.down || player.body.touching.down;
+            if (cursors.left.isDown) {
+                player.setVelocityX(-200);
+                player.anims.play("left", true);
+            } else if (cursors.right.isDown) {
+                player.setVelocityX(200);
+                player.anims.play("right", true);
+            } else {
+                player.setVelocityX(0);
+                player.anims.play("turn");
+            }
+            if (cursors.up.isDown && isTouch) {
+                player.setVelocityY(-1000);
+            }
+
+
+
+
+            // 增加判斷是否翻轉中
+            if (cursors.up.isDown && isTouch && !isFlipping) {
+                isFlipping = true;
+                player.setVelocityY(-500);
+                // 使用粒子特效
+                emitter.start();
+                // 使用tweens補間動畫設計翻轉效果
+                this.tweens.add({
+                    targets: player,
+                    angle: cursors.right.isDown ? 360 : -360, // 判斷左右鍵
+                    duration: 600, // 翻轉時間設定為0.6 秒
+                    ease: 'Cubic.easeOut', // 使用easeOut速率曲線
+                    onComplete: () => { // 翻轉完成後執行
+                        player.setAngle(0); // 回復原本玩家角度
+                        isFlipping = false; // 重置翻轉狀態
+                        emitter.stop(); // 停止粒子特效
+                    }
+                });
+            }
+            let standing = player.body.blocked.down || player.body.touching.down;
+            if (!standing && wasStanding) {
+                edgeTimer = time + 250;
+            }
+            if (
+                (standing || time <= edgeTimer) &&
+                cursors.up.isDown &&
+                time > jumpTimer
+            ) {
+                player.body.velocity.y = -500;
+                jumpTimer = time + 750;
+            }
+            wasStanding = standing;
+
+
+            platforms.getChildren().forEach(function (platform) {
+                wrapPlatform(platform);
+            });
+
+            player.setVelocityX(0);
+            isTouch = player.body.blocked.down || player.body.touching.down;
+
+            if (cursors.left.isDown) {
+                player.setVelocityX(-200);
+                player.anims.play("left", true);
+            } else if (cursors.right.isDown) {
+                player.setVelocityX(200);
+                player.anims.play("right", true);
+            } else {
+                player.setVelocityX(0);
+                player.anims.play("turn");
+            }
+
+            if (cursors.up.isDown && isTouch) {
+                player.setVelocityY(-580);
+            }
+
+            let newLayer = Math.floor((2000 - player.y) / 104);
+            newLayer = Math.max(0, Math.min(newLayer, 20)); // 層數範圍是 0 到 20，對應 21 層
+
+            // **角色掉到最底層，分數歸零**
+            if (newLayer === 0) {
+                score = 0;
+                scoreText.setText('Score: ' + score);
+            }
+
+            // **角色掉下一層，分數變為該層數的分數**
+            if (newLayer < lastLayer) {
+                if (newLayer === 20) {
+                    score = 100;  // 最後一層設定為 100 分
+                } else {
+                    score = (newLayer + 1) * 5;  // 其他層數的分數還是用 newLayer * 5
+                }
+                scoreText.setText('Score: ' + score);
+            }
+
+            lastLayer = newLayer; // 更新最後所在層數
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        function wrapPlatform(platform) {
+            if (platform.body.velocity.x < 0 && platform.x <= -160) {
+                platform.x = 640;
+            }
+            // 平台速度大於0且平台位置超過畫布寬度時重置
+            else if (platform.body.velocity.x > 0 && platform.x >= 640) {
+                platform.x = -160;
+            }
+        }
+
+
+        function setFriction(player, platform) {
+            if (platform.texture.key === "ice-platform") {
+                player.body.x -= (platform.body.x - platform.body.prev.x);
+                player.setDragX(150);
+                snowEmitter.start();
+                setTimeout(() => snowEmitter.stop(), 200);
+            } else {
+                player.setDragX(1000);
+            }
+
+            // **加分機制：確保每個平台只計分一次**
+            if (platform !== lastPlatform) {
+                score += 5;
+                scoreText.setText('Score: ' + score);
+                lastPlatform = platform; // 更新最近碰到的平台
+            }
+        }
+
+
+    </script>
+</body>
+
+</html>
